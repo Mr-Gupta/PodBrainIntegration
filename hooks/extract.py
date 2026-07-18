@@ -15,10 +15,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(os.environ.get("POD_BRAIN_DIR", Path(__file__).resolve().parent.parent))
+CODE_DIR = Path(__file__).resolve().parent.parent
+REPO = Path(os.environ.get("POD_BRAIN_DIR", CODE_DIR))
 LEARNINGS = REPO / "learnings"
 STATE = REPO / ".state"
+# The store may be a learnings-only repo; the extraction policy then comes
+# from the code repo.
 PROMPT_FILE = REPO / "prompts" / "extract.md"
+if not PROMPT_FILE.is_file():
+    PROMPT_FILE = CODE_DIR / "prompts" / "extract.md"
 MODEL = os.environ.get("POD_BRAIN_MODEL", "claude-opus-4-8")
 MIN_DELTA_CHARS = 400      # skip trivial turns
 MAX_EXCERPT_CHARS = 60000  # cap what we send to the extractor

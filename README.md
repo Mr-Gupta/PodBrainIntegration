@@ -28,6 +28,21 @@ git clone <this repo> ~/Dev/pod-brain
 
 Requires: `python3`, `claude` CLI (uses your existing auth — no API key).
 
+### Split code and store (work setups)
+
+If the learnings must live in a different org than this code (e.g. team
+knowledge belongs in the company's GitHub org, while this tool repo stays
+personal), point the hooks at a separate store repo:
+
+```sh
+git clone git@github.com:your-org/pod-brain-store.git ~/work/pod-brain-store
+~/Dev/pod-brain/install.sh --store ~/work/pod-brain-store
+```
+
+The store repo needs nothing but a `learnings/` directory (created for you on
+install). Learnings are committed/pushed there; the extraction policy is read
+from the store's `prompts/extract.md` if present, else from this repo.
+
 ## Test the loop
 
 1. **Inject (Wizard-of-Oz):** in a fresh Claude Code session say
