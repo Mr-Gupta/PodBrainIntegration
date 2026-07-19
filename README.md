@@ -76,6 +76,7 @@ Env: `POD_BRAIN_URL` (server), `POD_BRAIN_ACTOR` (defaults to git user.name).
 
 - `POD_BRAIN_DIR` — store location (default: this repo).
 - `POD_BRAIN_MODEL` — extraction model (default `claude-opus-4-8`).
+- `POD_BRAIN_URL` — brain server (server mode); `POD_BRAIN_ACTOR` — actor name override (defaults to git user.name).
 
 ## Deliberately not here (see the Brain vault wiki)
 

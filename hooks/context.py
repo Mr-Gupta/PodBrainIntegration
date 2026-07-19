@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
-TIMEOUT_S = 1.0  # inside Claude Code's ~1.2s guidance; fail open past it
+TIMEOUT_S = 3.0  # remote DB + embedding call can exceed 1s; hook harness allows 10s
 
 
 def state_dir() -> Path:
@@ -37,14 +37,15 @@ def actor_name() -> str:
 
 
 def is_first_of_session(session_id: str) -> bool:
-    """True exactly once per session; creates the marker as a side effect."""
+    """True iff this session has no marker yet. Pure check — no side effect."""
+    return not (state_dir() / f"{session_id}.seen").exists()
+
+
+def mark_seen(session_id: str) -> None:
+    """Record that this session's prompt was successfully handled."""
     state = state_dir()
     state.mkdir(parents=True, exist_ok=True)
-    marker = state / f"{session_id}.seen"
-    if marker.exists():
-        return False
-    marker.touch()
-    return True
+    (state / f"{session_id}.seen").touch()
 
 
 def build_body(payload: dict, first: bool, actor: str) -> dict:
@@ -62,11 +63,9 @@ def main() -> None:
     payload = json.load(sys.stdin)
     if not payload.get("prompt"):
         return
-    body = build_body(
-        payload,
-        first=is_first_of_session(payload.get("session_id", "unknown")),
-        actor=actor_name(),
-    )
+    sid = payload.get("session_id", "unknown")
+    first = is_first_of_session(sid)
+    body = build_body(payload, first=first, actor=actor_name())
     req = urllib.request.Request(
         f"{URL}/v0/context",
         data=json.dumps(body).encode(),
@@ -75,6 +74,7 @@ def main() -> None:
     )
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
         ctx = json.load(resp).get("additionalContext", "")
+    mark_seen(sid)
     if ctx:
         print(ctx)
 

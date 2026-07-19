@@ -4,6 +4,7 @@
 #   ./install.sh <repo>                   → project-level (<repo>/.claude/settings.json): that repo only
 #   ./install.sh --store <store-repo> …   → keep learnings in a separate repo (POD_BRAIN_DIR);
 #                                           use when the store must live in a different org than this code
+#   ./install.sh --server <url> [repo]      → http mode: hooks talk to a shared brain server (POD_BRAIN_URL)
 set -euo pipefail
 
 BRAIN_DIR="$(cd "$(dirname "$0")" && pwd)"

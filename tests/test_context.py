@@ -30,6 +30,8 @@ class TestFirstOfSession(unittest.TestCase):
             os.environ["POD_BRAIN_STATE_DIR"] = d
             try:
                 self.assertTrue(context.is_first_of_session("abc"))
+                self.assertTrue(context.is_first_of_session("abc"))  # not marked yet
+                context.mark_seen("abc")
                 self.assertFalse(context.is_first_of_session("abc"))  # marker now exists
                 self.assertTrue(context.is_first_of_session("other"))
             finally:
