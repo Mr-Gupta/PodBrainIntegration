@@ -13,8 +13,6 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from extract import transcript_text  # same-dir import; extract.py has a main guard
-
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
 MIN_DELTA_CHARS = 400
 MAX_EXCERPT_CHARS = 60000
@@ -29,6 +27,10 @@ def state_dir() -> Path:
 def read_delta(transcript_path: Path, offset_file: Path) -> tuple[str, int]:
     """Flatten transcript lines added since the recorded offset.
     Returns (excerpt, new_total_line_count)."""
+    # Imported lazily so a broken/missing extract.py trips the fail-open
+    # wrapper in main() instead of crashing at module import.
+    from extract import transcript_text
+
     offset = int(offset_file.read_text()) if offset_file.is_file() else 0
     lines = transcript_path.read_text(encoding="utf-8", errors="replace").splitlines()
     excerpt = transcript_text(lines[offset:])[-MAX_EXCERPT_CHARS:]
