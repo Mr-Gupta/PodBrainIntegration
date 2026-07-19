@@ -15,9 +15,12 @@ import urllib.request
 from pathlib import Path
 
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
-STATE = Path(os.environ.get("POD_BRAIN_STATE_DIR",
-                            Path(__file__).resolve().parent.parent / ".state"))
 TIMEOUT_S = 1.0  # inside Claude Code's ~1.2s guidance; fail open past it
+
+
+def state_dir() -> Path:
+    return Path(os.environ.get("POD_BRAIN_STATE_DIR",
+                               Path(__file__).resolve().parent.parent / ".state"))
 
 
 def actor_name() -> str:
@@ -35,8 +38,9 @@ def actor_name() -> str:
 
 def is_first_of_session(session_id: str) -> bool:
     """True exactly once per session; creates the marker as a side effect."""
-    STATE.mkdir(parents=True, exist_ok=True)
-    marker = STATE / f"{session_id}.seen"
+    state = state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    marker = state / f"{session_id}.seen"
     if marker.exists():
         return False
     marker.touch()
