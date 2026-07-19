@@ -43,6 +43,24 @@ The store repo needs nothing but a `learnings/` directory (created for you on
 install). Learnings are committed/pushed there; the extraction policy is read
 from the store's `prompts/extract.md` if present, else from this repo.
 
+## Server mode (v0 prototype)
+
+Instead of the git-markdown store, hooks can talk to a shared brain server
+(Brain/app — see its docs/superpowers/specs/2026-07-19-v0-collision-prototype-design.md):
+
+```sh
+~/Dev/pod-brain/install.sh --server http://localhost:8787
+```
+
+- Every prompt: top-3 team learnings injected as a <team_memory> block.
+- First prompt of a session: ⚠️ collision warning if a teammate recently
+  worked on the same thing.
+- On Stop: the transcript delta is sent to the server, which extracts
+  learnings + a session summary into the shared Postgres.
+
+Env: `POD_BRAIN_URL` (server), `POD_BRAIN_ACTOR` (defaults to git user.name).
+`--server` and `--store` are mutually exclusive.
+
 ## Test the loop
 
 1. **Inject (Wizard-of-Oz):** in a fresh Claude Code session say
