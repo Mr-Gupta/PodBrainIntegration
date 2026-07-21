@@ -14,6 +14,9 @@ class TestToolText(unittest.TestCase):
         text = trigger_watch.tool_text({"tool_output": {"stdout": "ECONNREFUSED"}})
         self.assertIn("ECONNREFUSED", text)
 
+    def test_tool_response_field_name_also_accepted(self):
+        self.assertEqual(trigger_watch.tool_text({"tool_response": "connection refused"}), "connection refused")
+
     def test_long_output_keeps_the_tail(self):
         text = trigger_watch.tool_text({"tool_output": "x" * 30000 + "THE-END"})
         self.assertEqual(len(text), trigger_watch.MAX_TEXT_CHARS)

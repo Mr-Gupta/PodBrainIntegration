@@ -36,8 +36,10 @@ def actor_name() -> str:
 
 
 def tool_text(payload: dict) -> str:
-    """Flatten tool_output to text, keeping the tail (errors print last)."""
-    out = payload.get("tool_output", "")
+    """Flatten the tool result to text, keeping the tail (errors print last).
+    Reads tool_output and tool_response — Claude Code versions differ on the
+    field name, and fail-open would hide a mismatch forever."""
+    out = payload.get("tool_output") or payload.get("tool_response") or ""
     if not isinstance(out, str):
         out = json.dumps(out)
     return out[-MAX_TEXT_CHARS:]
