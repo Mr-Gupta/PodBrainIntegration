@@ -61,6 +61,10 @@ Instead of the git-markdown store, hooks can talk to a shared brain server
 - On Stop: the transcript delta is sent to the server, which extracts
   structured learning records (category, claim, dead-ends, provenance,
   trigger, repo scope) + a session summary into the shared Postgres.
+- Every retrieval (injection, collision, trigger fire, mid-session search)
+  is appended by the server to a local JSONL log
+  (`.state/retrievals.jsonl` in Brain/app; `RETRIEVAL_LOG` to move it) —
+  `npm run stats` there shows hit rates and which records actually fire.
 
 Env: `POD_BRAIN_URL` (server), `POD_BRAIN_ACTOR` (defaults to git user.name).
 `--server` and `--store` are mutually exclusive.
