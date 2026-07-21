@@ -55,7 +55,7 @@ if target.is_file():
 
 hooks = settings.setdefault("hooks", {})
 
-def ensure(event, command, timeout=None):
+def ensure(event, command, timeout=None, matcher=None):
     entries = hooks.setdefault(event, [])
     for group in entries:
         for h in group.get("hooks", []):
@@ -64,12 +64,16 @@ def ensure(event, command, timeout=None):
     hook = {"type": "command", "command": command}
     if timeout:
         hook["timeout"] = timeout
-    entries.append({"hooks": [hook]})
+    group = {"hooks": [hook]}
+    if matcher:
+        group["matcher"] = matcher
+    entries.append(group)
 
 if server:
     prefix = f"POD_BRAIN_URL={server} "
     ensure("UserPromptSubmit", f"{prefix}python3 {brain}/hooks/context.py", timeout=10)
     ensure("Stop", f"{prefix}python3 {brain}/hooks/extract_http.py", timeout=15)
+    ensure("PostToolUse", f"{prefix}python3 {brain}/hooks/trigger_watch.py", timeout=10, matcher="Bash")
 else:
     prefix = f"POD_BRAIN_DIR={store} " if store else ""
     ensure("UserPromptSubmit", f"{prefix}python3 {brain}/hooks/inject.py", timeout=10)

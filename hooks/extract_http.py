@@ -6,6 +6,8 @@ Same detach pattern as extract.py: the parent returns immediately; a detached
 child does the slow HTTP call (the server's claude -p run happens inside the
 request, so the child waits up to ~5 minutes — invisible to the user).
 """
+from __future__ import annotations
+
 import json
 import os
 import subprocess
@@ -50,6 +52,25 @@ def actor_name() -> str:
         return "unknown"
 
 
+def repo_name(cwd: str) -> str | None:
+    """Deterministic repo identity: git remote basename, else cwd basename.
+    The extractor only judges repo-vs-global; this is the name it resolves to."""
+    if not cwd:
+        return None  # git -C "" would silently mean "here"
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout.strip()
+        if out:
+            name = out.rstrip("/").split("/")[-1]
+            return name.removesuffix(".git").lower() or None
+    except Exception:
+        pass
+    base = os.path.basename(os.path.normpath(cwd)) if cwd else ""
+    return base.lower() or None
+
+
 def main() -> None:
     if os.environ.get("POD_BRAIN_EXTRACTING"):
         return
@@ -84,7 +105,12 @@ def main() -> None:
     if len(excerpt) < MIN_DELTA_CHARS:
         return
 
-    body = {"actor": actor_name(), "session_id": session_id, "transcript": excerpt}
+    body = {
+        "actor": actor_name(),
+        "session_id": session_id,
+        "transcript": excerpt,
+        "repo": repo_name(payload.get("cwd", "")),
+    }
     req = urllib.request.Request(
         f"{URL}/v0/extract",
         data=json.dumps(body).encode(),
