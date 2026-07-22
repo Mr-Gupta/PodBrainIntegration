@@ -38,6 +38,10 @@ class TestMachinePrompts(unittest.TestCase):
             "  <local-command-caveat>Caveat: ...</local-command-caveat>"))
         self.assertTrue(context.is_machine_prompt("<command-name>/compact</command-name>"))
 
+    def test_session_summarizer_prompts_are_machine(self):
+        self.assertTrue(context.is_machine_prompt(
+            "Context: This summary will be shown in a list to help users find their session"))
+
     def test_human_prompts_are_not_machine(self):
         self.assertFalse(context.is_machine_prompt("why is journaling broken"))
         self.assertFalse(context.is_machine_prompt("fix the <task-notification> renderer"))
