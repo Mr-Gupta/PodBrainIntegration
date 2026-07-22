@@ -62,7 +62,7 @@ if target.is_file():
 
 hooks = settings.setdefault("hooks", {})
 
-POD_SCRIPTS = ("inject.py", "extract.py", "context.py", "extract_http.py", "trigger_watch.py")
+POD_SCRIPTS = ("inject.py", "extract.py", "context.py", "extract_http.py", "trigger_watch.py", "file_touch.py")
 
 def is_pod_brain(cmd):
     return any(f"{brain}/hooks/{s}" in cmd for s in POD_SCRIPTS)
@@ -106,6 +106,7 @@ if server:
         prefix += f"POD_BRAIN_ACTOR='{actor}' "
     ensure("UserPromptSubmit", f"{prefix}python3 {brain}/hooks/context.py", timeout=20)
     ensure("Stop", f"{prefix}python3 {brain}/hooks/extract_http.py", timeout=15)
+    ensure("PostToolUse", f"{prefix}python3 {brain}/hooks/file_touch.py", timeout=10, matcher="Edit|Write|MultiEdit")
     ensure("PostToolUse", f"{prefix}python3 {brain}/hooks/trigger_watch.py", timeout=10, matcher="Bash")
 else:
     prefix = f"POD_BRAIN_DIR={store} " if store else ""
