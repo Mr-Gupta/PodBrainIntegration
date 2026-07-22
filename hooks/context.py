@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from extract_http import repo_name  # noqa: E402
 
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
-TIMEOUT_S = 3.0  # remote DB + embedding call can exceed 1s; hook harness allows 10s
+# First prompts can trigger the collision judge (a haiku call) server-side;
+# ordinary prompts stay ~1s. The hook harness timeout must exceed this.
+TIMEOUT_S = 18.0
 
 # Harness-generated "prompts" (task notifications, slash-command wrappers,
 # session-summarizer requests) carry no human intent — embedding and

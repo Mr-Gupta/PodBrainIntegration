@@ -104,7 +104,7 @@ if server:
     prefix = f"POD_BRAIN_URL={server} "
     if actor:
         prefix += f"POD_BRAIN_ACTOR='{actor}' "
-    ensure("UserPromptSubmit", f"{prefix}python3 {brain}/hooks/context.py", timeout=10)
+    ensure("UserPromptSubmit", f"{prefix}python3 {brain}/hooks/context.py", timeout=20)
     ensure("Stop", f"{prefix}python3 {brain}/hooks/extract_http.py", timeout=15)
     ensure("PostToolUse", f"{prefix}python3 {brain}/hooks/trigger_watch.py", timeout=10, matcher="Bash")
 else:
