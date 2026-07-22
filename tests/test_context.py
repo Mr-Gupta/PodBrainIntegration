@@ -12,7 +12,7 @@ import context  # noqa: E402
 class TestBuildBody(unittest.TestCase):
     def test_build_body_shapes_the_wire_contract(self):
         payload = {"session_id": "s-1", "prompt": "work on reclaw retrieval"}
-        body = context.build_body(payload, first=True, actor="amri")
+        body = context.build_body(payload, first=True, actor="amri", repo="reclaw")
         self.assertEqual(
             body,
             {
@@ -20,8 +20,27 @@ class TestBuildBody(unittest.TestCase):
                 "session_id": "s-1",
                 "prompt": "work on reclaw retrieval",
                 "first_of_session": True,
+                "repo": "reclaw",
             },
         )
+
+    def test_build_body_carries_null_repo_outside_a_repo(self):
+        payload = {"session_id": "s-1", "prompt": "p"}
+        body = context.build_body(payload, first=False, actor="amri", repo=None)
+        self.assertIsNone(body["repo"])
+
+
+class TestMachinePrompts(unittest.TestCase):
+    def test_task_notifications_and_command_wrappers_are_machine(self):
+        self.assertTrue(context.is_machine_prompt(
+            "<task-notification>\n<task-id>b9e3k1725</task-id>..."))
+        self.assertTrue(context.is_machine_prompt(
+            "  <local-command-caveat>Caveat: ...</local-command-caveat>"))
+        self.assertTrue(context.is_machine_prompt("<command-name>/compact</command-name>"))
+
+    def test_human_prompts_are_not_machine(self):
+        self.assertFalse(context.is_machine_prompt("why is journaling broken"))
+        self.assertFalse(context.is_machine_prompt("fix the <task-notification> renderer"))
 
 
 class TestFirstOfSession(unittest.TestCase):

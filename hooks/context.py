@@ -14,8 +14,19 @@ import sys
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extract_http import repo_name  # noqa: E402
+
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
 TIMEOUT_S = 3.0  # remote DB + embedding call can exceed 1s; hook harness allows 10s
+
+# Harness-generated "prompts" (task notifications, slash-command wrappers)
+# carry no human intent — embedding and injecting against them is pure cost.
+MACHINE_PROMPT_PREFIXES = ("<task-notification>", "<local-command-caveat>", "<command-name>")
+
+
+def is_machine_prompt(prompt: str) -> bool:
+    return prompt.lstrip().startswith(MACHINE_PROMPT_PREFIXES)
 
 
 def state_dir() -> Path:
@@ -48,12 +59,13 @@ def mark_seen(session_id: str) -> None:
     (state / f"{session_id}.seen").touch()
 
 
-def build_body(payload: dict, first: bool, actor: str) -> dict:
+def build_body(payload: dict, first: bool, actor: str, repo: "str | None") -> dict:
     return {
         "actor": actor,
         "session_id": payload.get("session_id", "unknown"),
         "prompt": payload.get("prompt", ""),
         "first_of_session": first,
+        "repo": repo,
     }
 
 
@@ -61,11 +73,13 @@ def main() -> None:
     if os.environ.get("POD_BRAIN_EXTRACTING"):
         return  # inside the server's own claude -p call
     payload = json.load(sys.stdin)
-    if not payload.get("prompt"):
+    prompt = payload.get("prompt", "")
+    if not prompt or is_machine_prompt(prompt):
         return
     sid = payload.get("session_id", "unknown")
     first = is_first_of_session(sid)
-    body = build_body(payload, first=first, actor=actor_name())
+    body = build_body(payload, first=first, actor=actor_name(),
+                      repo=repo_name(payload.get("cwd", "")))
     req = urllib.request.Request(
         f"{URL}/v0/context",
         data=json.dumps(body).encode(),
