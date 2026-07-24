@@ -11,6 +11,10 @@ import os
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extract_http import heartbeat, repo_name  # noqa: E402
 
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
 TIMEOUT_S = 1.5
@@ -37,6 +41,7 @@ def build_body(payload: dict, actor: str) -> dict | None:
         "actor": actor,
         "session_id": payload.get("session_id", "unknown"),
         "file": file_path,
+        "repo": repo_name(payload.get("cwd", "")),
     }
 
 
@@ -52,6 +57,7 @@ def render_output(ctx: str) -> dict:
 def main() -> None:
     if os.environ.get("POD_BRAIN_EXTRACTING"):
         return  # inside the server's own claude -p call
+    heartbeat("file-touch")
     payload = json.load(sys.stdin)
     body = build_body(payload, actor_name())
     if body is None:

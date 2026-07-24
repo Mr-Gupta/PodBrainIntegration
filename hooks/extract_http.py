@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -24,6 +25,19 @@ TIMEOUT_S = 320  # server extraction timeout is 300s
 def state_dir() -> Path:
     return Path(os.environ.get("POD_BRAIN_STATE_DIR",
                                Path(__file__).resolve().parent.parent / ".state"))
+
+
+def heartbeat(hook: str) -> None:
+    """Liveness marker: these hooks fail open, so a dead one is silent forever
+    (the tool_output/tool_response no-op, the getDateRange miss — field
+    report, 2026-07-23). The file's mtime is the cheap proof the hook ran;
+    the server's retrieval log only proves calls that arrived."""
+    try:
+        d = state_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"heartbeat-{hook}").write_text(str(int(time.time())))
+    except Exception:
+        pass  # liveness must never break the hook it watches
 
 
 def read_delta(transcript_path: Path, offset_file: Path) -> tuple[str, int]:
@@ -74,6 +88,7 @@ def repo_name(cwd: str) -> str | None:
 def main() -> None:
     if os.environ.get("POD_BRAIN_EXTRACTING"):
         return
+    heartbeat("extract")
     payload = json.load(sys.stdin)
     if payload.get("stop_hook_active"):
         return

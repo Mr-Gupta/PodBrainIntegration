@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from extract_http import repo_name  # noqa: E402
+from extract_http import heartbeat, repo_name  # noqa: E402
 
 URL = os.environ.get("POD_BRAIN_URL", "http://localhost:8787")
 # First prompts can trigger the collision judge (a haiku call) server-side;
@@ -78,6 +78,7 @@ def build_body(payload: dict, first: bool, actor: str, repo: "str | None") -> di
 def main() -> None:
     if os.environ.get("POD_BRAIN_EXTRACTING"):
         return  # inside the server's own claude -p call
+    heartbeat("context")
     payload = json.load(sys.stdin)
     prompt = payload.get("prompt", "")
     if not prompt or is_machine_prompt(prompt):
