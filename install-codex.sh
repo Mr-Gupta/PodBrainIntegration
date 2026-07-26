@@ -5,15 +5,17 @@
 #                                                           → also writes an HTTP fallback into AGENTS.md
 #
 # What Codex gets today:
-#   inject/pull  ✅  the agent can search team memory through an MCP tool, and
-#                    AGENTS.md tells it when to do so
-#   capture      ⬜  not wired here YET — but Codex does have lifecycle hooks
-#                    (PreToolUse, session start / turn completion, tool
-#                    decisions) declared in ~/.codex/hooks.json, <repo>/.codex/
-#                    hooks.json, or an inline [hooks] table. It also writes
-#                    rollout transcripts under CODEX_HOME. So the capture side
-#                    is a follow-up, not an impossibility.
-#     docs: https://learn.chatgpt.com/docs/config-file/config-advanced
+#   inject  ✅  push via a UserPromptSubmit hook (hooks/context.py, unmodified —
+#               Codex sends session_id/prompt/cwd and accepts plain stdout as
+#               injected context, same as Claude Code) PLUS pull via an MCP tool
+#               and an AGENTS.md pointer.
+#   capture ⬜  Stop fires on Codex too, but extract_http.py parses Claude
+#               transcript format and Codex writes its own rollout shape under
+#               CODEX_HOME. That is a parser, not a redesign.
+#
+# Codex's hook events are near-identical to Claude Code's: UserPromptSubmit,
+# Stop, PreToolUse, PostToolUse, SessionStart/End, Pre/PostCompact,
+# SubagentStart/Stop.  docs: https://learn.chatgpt.com/docs/hooks
 #
 # CODEX_HOME overrides ~/.codex (used by the tests, and by Codex itself).
 set -euo pipefail
@@ -61,12 +63,20 @@ grep -q '^DATABASE_URL=.' "$BRAIN_APP/.env" || {
 grep -q '^OPENAI_API_KEY=.' "$BRAIN_APP/.env" || {
   echo "OPENAI_API_KEY missing or empty in $BRAIN_APP/.env" >&2; exit 1; }
 
-python3 - "$CODEX_DIR/config.toml" "$PROJECT" "$BRAIN_APP" "$SERVER" <<'PY'
-import shutil, sys
+BRAIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+ACTOR="${POD_BRAIN_ACTOR:-$(git config user.name 2>/dev/null || true)}"
+HOOK_URL="${SERVER:-http://localhost:8787}"
+
+python3 - "$CODEX_DIR/config.toml" "$PROJECT" "$BRAIN_APP" "$SERVER" \
+          "$CODEX_DIR/hooks.json" "$BRAIN_DIR" "$HOOK_URL" "$ACTOR" <<'PY'
+import json, shutil, sys
 from pathlib import Path
 
 config, project, brain_app, server = (
     Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+)
+hooks_path, brain_dir, hook_url, actor = (
+    Path(sys.argv[5]), sys.argv[6], sys.argv[7], sys.argv[8].strip().lower()
 )
 
 # ---- MCP entry -------------------------------------------------------------
@@ -150,11 +160,69 @@ else:
     out = (prev.rstrip() + "\n\n" if prev.strip() else "") + agents_block + "\n"
 agents.write_text(out)
 
+# ---- UserPromptSubmit hook -------------------------------------------------
+# hooks/context.py runs unmodified. Codex sends session_id, prompt and cwd on
+# stdin — the three fields the hook reads — and accepts plain stdout as the
+# injected context for UserPromptSubmit, which is exactly what it prints.
+#
+# Hooks live in hooks.json rather than an inline [hooks] table because Codex
+# warns when one layer carries both representations, and this layer's
+# config.toml is already holding the MCP entry.
+#
+# This is the PUSH side, and it is why it matters: MCP alone means the agent
+# has to choose to look. UserPromptSubmit puts team memory in front of it on
+# every turn whether it thought to ask or not.
+prefix = f"POD_BRAIN_URL={hook_url} "
+if actor:
+    prefix += f"POD_BRAIN_ACTOR='{actor}' "
+command = f"{prefix}python3 {brain_dir}/hooks/context.py"
+
+doc = {}
+if hooks_path.is_file():
+    shutil.copy(hooks_path, str(hooks_path) + ".bak")
+    try:
+        doc = json.loads(hooks_path.read_text())
+    except Exception:
+        doc = {}  # unparseable: start clean rather than refuse to install
+events = doc.setdefault("hooks", {})
+
+# Replace-never-stack, matching install.sh: drop any prior pod-brain entry
+# before adding this one, so a re-run cannot double-inject.
+for event in list(events):
+    groups = []
+    for group in events[event]:
+        kept = [h for h in group.get("hooks", [])
+                if f"{brain_dir}/hooks/" not in h.get("command", "")]
+        if kept:
+            group["hooks"] = kept
+            groups.append(group)
+    if groups:
+        events[event] = groups
+    else:
+        del events[event]
+
+events.setdefault("UserPromptSubmit", []).append({
+    "hooks": [{
+        "type": "command",
+        "command": command,
+        "statusMessage": "Checking team memory",
+        # First prompt of a session can trigger the collision judge server-side.
+        "timeout": 25,
+    }]
+})
+doc.setdefault("description", "pod-brain team memory injection")
+hooks_path.write_text(json.dumps(doc, indent=2) + "\n")
+
 print(f"codex mcp server registered in {config}")
+print(f"userpromptsubmit hook written to {hooks_path}")
 print(f"agents.md pointer written to {agents}")
-print("codex gets the PULL side today — a Codex session reads what Claude Code")
-print("sessions wrote. Capture from Codex is a follow-up: Codex does have")
-print("lifecycle hooks and writes rollout transcripts under CODEX_HOME.")
-print("Restart Codex to pick up the MCP server.")
+print()
+print("ACTION REQUIRED: run /hooks inside Codex and press 't' to trust the")
+print("pod-brain hook. Codex skips untrusted command hooks silently — an")
+print("untrusted hook looks exactly like a broken one.")
+print()
+print("inject ✅ push (UserPromptSubmit) + pull (MCP tool)")
+print("capture ⬜ not yet: Stop fires on Codex too, but extract_http.py parses")
+print("           Claude transcript format and Codex rollouts differ.")
 print("(previous files backed up to *.bak)")
 PY
