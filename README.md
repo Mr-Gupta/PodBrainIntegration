@@ -94,6 +94,41 @@ shared brain. Query it mid-task — don't wait for it to be pushed to you:
 - Empty results are normal; move on. At most a couple of queries per task.
 ```
 
+## Codex (pull only)
+
+`install.sh` wires Claude Code and nothing else. Codex has no
+`UserPromptSubmit`/`Stop`/`PostToolUse` equivalent, so it cannot capture — but
+it can *read* what Claude Code sessions captured, which is the cross-harness
+half of the pitch:
+
+```bash
+./install-codex.sh --brain-app ~/dev/PodBrainServer --server http://localhost:8787 ~/dev/retoolos
+```
+
+Two things get written, both idempotent and both backed up to `*.bak`:
+
+- `~/.codex/config.toml` gains an `[mcp_servers.pod_brain]` entry exposing the
+  `search_team_memory` tool. `CODEX_HOME` overrides the location.
+- `<repo>/AGENTS.md` gains a pointer telling the agent *when* to call it. The
+  tool alone is not enough — an agent that has to decide to look mostly
+  doesn't, which is the exact complaint the user research turned up about
+  committed skills.
+
+`--server` is optional and only adds an HTTP `curl` fallback to `AGENTS.md`,
+so the demo survives an MCP misconfiguration.
+
+The entry sets `cwd` to the brain checkout so the server's own `dotenv` finds
+`.env` — no credentials are copied into `config.toml`. `startup_timeout_sec`
+is raised to 30 because `npx tsx` cold-starts past the 10s default.
+
+**Capture from Codex is not wired yet — but it is possible.** Codex has
+lifecycle hooks (`PreToolUse`, session start / turn completion, tool
+decisions) declared in `~/.codex/hooks.json`, `<repo>/.codex/hooks.json`, or
+an inline `[hooks]` table, and it writes rollout transcripts under
+`CODEX_HOME`. Either route would give the capture side. Today transfer runs
+one way: a Codex session reads what Claude Code sessions wrote.
+See <https://learn.chatgpt.com/docs/config-file/config-advanced>.
+
 ## Test the loop
 
 1. **Inject (Wizard-of-Oz):** in a fresh Claude Code session say

@@ -5,12 +5,19 @@
 #   ./install.sh --store <store-repo> …   → keep learnings in a separate repo (POD_BRAIN_DIR);
 #                                           use when the store must live in a different org than this code
 #   ./install.sh --server <url> [repo]      → http mode: hooks talk to a shared brain server (POD_BRAIN_URL)
+#   ./install.sh --brain-app <path> …       → also wire Codex, if Codex is present on this machine
+#
+# Harness detection is automatic: Claude Code is always wired, Codex is wired
+# too when ~/.codex exists (or CODEX_HOME is set) AND --brain-app points at the
+# brain server checkout. Codex needs that path because its integration is an
+# MCP server launched by absolute path, not a hook command.
 set -euo pipefail
 
 BRAIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 STORE=""
 SERVER=""
 PROJECT=""
+BRAIN_APP=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --store)
@@ -20,6 +27,10 @@ while [ $# -gt 0 ]; do
     --server)
       [ $# -ge 2 ] || { echo "--server requires a url" >&2; exit 1; }
       SERVER="$2"
+      shift 2;;
+    --brain-app)
+      [ $# -ge 2 ] || { echo "--brain-app requires a path" >&2; exit 1; }
+      BRAIN_APP="$(cd "$2" && pwd)"
       shift 2;;
     *)
       PROJECT="$1"
@@ -127,3 +138,30 @@ if server:
               "Re-run with POD_BRAIN_ACTOR=<name> ./install.sh --server ...")
 print("(previous settings backed up to *.bak — restart Claude Code sessions to pick up)")
 PY
+
+# ---- Codex ------------------------------------------------------------------
+# Claude Code is wired above unconditionally. Codex is a different shape — no
+# lifecycle hooks, so it gets the pull side only (an MCP tool plus an AGENTS.md
+# pointer). Delegated to install-codex.sh so that script stays runnable and
+# testable on its own.
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
+if [ -d "$CODEX_DIR" ] || command -v codex >/dev/null 2>&1; then
+  if [ -z "$BRAIN_APP" ]; then
+    echo
+    echo "codex detected at $CODEX_DIR but --brain-app was not given, so it was skipped."
+    echo "  re-run with: --brain-app <path to brain server checkout>"
+    echo "  (codex integration is an MCP server launched by absolute path, not a hook)"
+  elif [ -z "$PROJECT" ]; then
+    echo
+    echo "codex detected, but AGENTS.md is per-repo and no repo argument was given."
+    echo "  re-run with a repo path to wire codex: ./install.sh ... <repo>"
+  else
+    echo
+    codex_args=(--brain-app "$BRAIN_APP")
+    [ -n "$SERVER" ] && codex_args+=(--server "$SERVER")
+    "$BRAIN_DIR/install-codex.sh" "${codex_args[@]}" "$PROJECT"
+  fi
+elif [ -n "$BRAIN_APP" ]; then
+  echo
+  echo "--brain-app given but no codex install found at $CODEX_DIR — nothing to wire."
+fi
