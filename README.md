@@ -121,13 +121,22 @@ The entry sets `cwd` to the brain checkout so the server's own `dotenv` finds
 `.env` — no credentials are copied into `config.toml`. `startup_timeout_sec`
 is raised to 30 because `npx tsx` cold-starts past the 10s default.
 
-**Capture from Codex is not wired yet — but it is possible.** Codex has
-lifecycle hooks (`PreToolUse`, session start / turn completion, tool
-decisions) declared in `~/.codex/hooks.json`, `<repo>/.codex/hooks.json`, or
-an inline `[hooks]` table, and it writes rollout transcripts under
-`CODEX_HOME`. Either route would give the capture side. Today transfer runs
-one way: a Codex session reads what Claude Code sessions wrote.
-See <https://learn.chatgpt.com/docs/config-file/config-advanced>.
+A `UserPromptSubmit` hook is also written to `~/.codex/hooks.json`, running
+`hooks/context.py` **unmodified** — Codex sends `session_id`, `prompt` and
+`cwd` on stdin (the three fields the hook reads) and accepts plain stdout as
+injected context, exactly like Claude Code. That is the push side; MCP alone
+would leave it to the agent to remember to look.
+
+> **After installing, run `/hooks` in Codex and press `t` to trust it.**
+> Codex silently skips untrusted command hooks — which looks identical to a
+> broken one.
+
+**Capture from Codex is not wired yet.** `Stop` fires on Codex too, but
+`extract_http.py` parses Claude transcript format and Codex writes its own
+rollout shape under `CODEX_HOME`. That is a parser, not a redesign. Codex's
+event list is near-identical to Claude Code's: `UserPromptSubmit`, `Stop`,
+`PreToolUse`, `PostToolUse`, `SessionStart`/`End`, `Pre`/`PostCompact`,
+`SubagentStart`/`Stop`. See <https://learn.chatgpt.com/docs/hooks>.
 
 ## Test the loop
 
