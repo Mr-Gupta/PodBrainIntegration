@@ -94,6 +94,37 @@ shared brain. Query it mid-task — don't wait for it to be pushed to you:
 - Empty results are normal; move on. At most a couple of queries per task.
 ```
 
+## Codex (pull only)
+
+`install.sh` wires Claude Code and nothing else. Codex has no
+`UserPromptSubmit`/`Stop`/`PostToolUse` equivalent, so it cannot capture — but
+it can *read* what Claude Code sessions captured, which is the cross-harness
+half of the pitch:
+
+```bash
+./install-codex.sh --brain-app ~/dev/PodBrainServer --server http://localhost:8787 ~/dev/retoolos
+```
+
+Two things get written, both idempotent and both backed up to `*.bak`:
+
+- `~/.codex/config.toml` gains an `[mcp_servers.pod_brain]` entry exposing the
+  `search_team_memory` tool. `CODEX_HOME` overrides the location.
+- `<repo>/AGENTS.md` gains a pointer telling the agent *when* to call it. The
+  tool alone is not enough — an agent that has to decide to look mostly
+  doesn't, which is the exact complaint the user research turned up about
+  committed skills.
+
+`--server` is optional and only adds an HTTP `curl` fallback to `AGENTS.md`,
+so the demo survives an MCP misconfiguration.
+
+The MCP server launches with an arbitrary cwd, so `dotenv` never finds
+`.env` — the installer reads `DATABASE_URL` and `OPENAI_API_KEY` out of the
+brain checkout and pins them into `config.toml`. That file then holds both in
+plaintext; it is user-level, keep it out of any repo.
+
+**Capture from Codex is not implemented.** A Codex session consumes team
+memory; it does not contribute to it.
+
 ## Test the loop
 
 1. **Inject (Wizard-of-Oz):** in a fresh Claude Code session say
