@@ -117,13 +117,17 @@ Two things get written, both idempotent and both backed up to `*.bak`:
 `--server` is optional and only adds an HTTP `curl` fallback to `AGENTS.md`,
 so the demo survives an MCP misconfiguration.
 
-The MCP server launches with an arbitrary cwd, so `dotenv` never finds
-`.env` — the installer reads `DATABASE_URL` and `OPENAI_API_KEY` out of the
-brain checkout and pins them into `config.toml`. That file then holds both in
-plaintext; it is user-level, keep it out of any repo.
+The entry sets `cwd` to the brain checkout so the server's own `dotenv` finds
+`.env` — no credentials are copied into `config.toml`. `startup_timeout_sec`
+is raised to 30 because `npx tsx` cold-starts past the 10s default.
 
-**Capture from Codex is not implemented.** A Codex session consumes team
-memory; it does not contribute to it.
+**Capture from Codex is not wired yet — but it is possible.** Codex has
+lifecycle hooks (`PreToolUse`, session start / turn completion, tool
+decisions) declared in `~/.codex/hooks.json`, `<repo>/.codex/hooks.json`, or
+an inline `[hooks]` table, and it writes rollout transcripts under
+`CODEX_HOME`. Either route would give the capture side. Today transfer runs
+one way: a Codex session reads what Claude Code sessions wrote.
+See <https://learn.chatgpt.com/docs/config-file/config-advanced>.
 
 ## Test the loop
 

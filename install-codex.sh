@@ -4,15 +4,16 @@
 #   ./install-codex.sh --brain-app <path> --server <url> <repo>
 #                                                           → also writes an HTTP fallback into AGENTS.md
 #
-# What Codex gets, and what it does not:
+# What Codex gets today:
 #   inject/pull  ✅  the agent can search team memory through an MCP tool, and
 #                    AGENTS.md tells it when to do so
-#   capture      ❌  Codex has no UserPromptSubmit/Stop/PostToolUse equivalent,
-#                    so nothing is written back from a Codex session
-#
-# That asymmetry is the honest state of the integration, not an oversight:
-# a Codex session consumes what Claude Code sessions captured. Cross-harness
-# transfer works in one direction today.
+#   capture      ⬜  not wired here YET — but Codex does have lifecycle hooks
+#                    (PreToolUse, session start / turn completion, tool
+#                    decisions) declared in ~/.codex/hooks.json, <repo>/.codex/
+#                    hooks.json, or an inline [hooks] table. It also writes
+#                    rollout transcripts under CODEX_HOME. So the capture side
+#                    is a follow-up, not an impossibility.
+#     docs: https://learn.chatgpt.com/docs/config-file/config-advanced
 #
 # CODEX_HOME overrides ~/.codex (used by the tests, and by Codex itself).
 set -euo pipefail
@@ -46,24 +47,26 @@ PROJECT="$(cd "$PROJECT" && pwd)"
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$CODEX_DIR"
 
-# The MCP server launches with an arbitrary cwd, so `import "dotenv/config"`
-# in db/client.ts finds no .env. Read the values here and pin them into the
-# config rather than hoping the process inherits them.
-DB_URL="${DATABASE_URL:-}"
-OAI_KEY="${OPENAI_API_KEY:-}"
-if [ -f "$BRAIN_APP/.env" ]; then
-  [ -n "$DB_URL" ] || DB_URL="$(sed -n 's/^DATABASE_URL=//p' "$BRAIN_APP/.env" | head -1)"
-  [ -n "$OAI_KEY" ] || OAI_KEY="$(sed -n 's/^OPENAI_API_KEY=//p' "$BRAIN_APP/.env" | head -1)"
-fi
-[ -n "$DB_URL" ] || { echo "DATABASE_URL not set and not found in $BRAIN_APP/.env" >&2; exit 1; }
-[ -n "$OAI_KEY" ] || { echo "OPENAI_API_KEY not set and not found in $BRAIN_APP/.env" >&2; exit 1; }
+# `cwd` is a supported mcp_servers key, so the server starts inside the brain
+# checkout and `import "dotenv/config"` resolves .env by itself. An earlier cut
+# of this script copied DATABASE_URL and OPENAI_API_KEY into config.toml —
+# unnecessary, and it put both in plaintext in a second file. Verify the
+# credentials exist; never read their values.
+[ -f "$BRAIN_APP/.env" ] || {
+  echo "no .env in $BRAIN_APP — the MCP server reads its credentials from there" >&2
+  exit 1
+}
+grep -q '^DATABASE_URL=.' "$BRAIN_APP/.env" || {
+  echo "DATABASE_URL missing or empty in $BRAIN_APP/.env" >&2; exit 1; }
+grep -q '^OPENAI_API_KEY=.' "$BRAIN_APP/.env" || {
+  echo "OPENAI_API_KEY missing or empty in $BRAIN_APP/.env" >&2; exit 1; }
 
-python3 - "$CODEX_DIR/config.toml" "$PROJECT" "$BRAIN_APP" "$SERVER" "$DB_URL" "$OAI_KEY" <<'PY'
+python3 - "$CODEX_DIR/config.toml" "$PROJECT" "$BRAIN_APP" "$SERVER" <<'PY'
 import shutil, sys
 from pathlib import Path
 
-config, project, brain_app, server, db_url, oai_key = (
-    Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+config, project, brain_app, server = (
+    Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 )
 
 # ---- MCP entry -------------------------------------------------------------
@@ -84,8 +87,10 @@ block = "\n".join([
     "[mcp_servers.pod_brain]",
     'command = "npx"',
     f"args = [\"tsx\", {toml_str(brain_app + '/src/mcp/server.ts')}]",
-    # Pinned rather than inherited: see the dotenv note in the shell preamble.
-    f"env = {{ DATABASE_URL = {toml_str(db_url)}, OPENAI_API_KEY = {toml_str(oai_key)} }}",
+    # Start inside the checkout so dotenv finds .env — no secrets in this file.
+    f"cwd = {toml_str(brain_app)}",
+    # `npx tsx` cold-starts well past the 10s default on a first run.
+    "startup_timeout_sec = 30",
     END,
 ])
 
@@ -147,12 +152,9 @@ agents.write_text(out)
 
 print(f"codex mcp server registered in {config}")
 print(f"agents.md pointer written to {agents}")
-print("codex gets the PULL side only — no capture; a Codex session reads what")
-print("Claude Code sessions wrote. Restart Codex to pick up the MCP server.")
+print("codex gets the PULL side today — a Codex session reads what Claude Code")
+print("sessions wrote. Capture from Codex is a follow-up: Codex does have")
+print("lifecycle hooks and writes rollout transcripts under CODEX_HOME.")
+print("Restart Codex to pick up the MCP server.")
 print("(previous files backed up to *.bak)")
-# The MCP block carries the DB url and API key in plaintext, for the dotenv
-# reason above. Same exposure as .env, different file — say so rather than
-# leaving someone to discover it in a screenshare.
-print(f"NOTE: {config} now holds DATABASE_URL and OPENAI_API_KEY in plaintext — "
-      "user-level file, keep it out of any repo.")
 PY
