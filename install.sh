@@ -140,10 +140,10 @@ print("(previous settings backed up to *.bak — restart Claude Code sessions to
 PY
 
 # ---- Codex ------------------------------------------------------------------
-# Claude Code is wired above unconditionally. Codex is a different shape — no
-# lifecycle hooks, so it gets the pull side only (an MCP tool plus an AGENTS.md
-# pointer). Delegated to install-codex.sh so that script stays runnable and
-# testable on its own.
+# Claude Code is wired above unconditionally. Codex gets both sides too — an
+# MCP tool for pull, a UserPromptSubmit hook for push — but both read the
+# Postgres-backed brain, so Codex only makes sense in server mode. Delegated to
+# install-codex.sh so that script stays runnable and testable on its own.
 CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 if [ -d "$CODEX_DIR" ] || command -v codex >/dev/null 2>&1; then
   if [ -z "$BRAIN_APP" ]; then
@@ -151,15 +151,23 @@ if [ -d "$CODEX_DIR" ] || command -v codex >/dev/null 2>&1; then
     echo "codex detected at $CODEX_DIR but --brain-app was not given, so it was skipped."
     echo "  re-run with: --brain-app <path to brain server checkout>"
     echo "  (codex integration is an MCP server launched by absolute path, not a hook)"
+  elif [ -z "$SERVER" ]; then
+    # The MCP tool queries Postgres and the hook posts to the HTTP server.
+    # Markdown mode has neither, so wiring Codex here would register a tool
+    # against a database that does not exist for this install.
+    echo
+    echo "codex detected, but it needs server mode — its MCP tool reads the shared"
+    echo "Postgres brain, which markdown mode does not have. Skipped."
+    echo "  to wire codex: ./install.sh --server <url> --brain-app $BRAIN_APP <repo>"
   elif [ -z "$PROJECT" ]; then
     echo
     echo "codex detected, but AGENTS.md is per-repo and no repo argument was given."
     echo "  re-run with a repo path to wire codex: ./install.sh ... <repo>"
   else
     echo
-    codex_args=(--brain-app "$BRAIN_APP")
-    [ -n "$SERVER" ] && codex_args+=(--server "$SERVER")
-    "$BRAIN_DIR/install-codex.sh" "${codex_args[@]}" "$PROJECT"
+    # ACTOR is resolved once above and passed down so both harnesses agree.
+    "$BRAIN_DIR/install-codex.sh" --brain-app "$BRAIN_APP" --server "$SERVER" \
+      ${ACTOR:+--actor "$ACTOR"} "$PROJECT"
   fi
 elif [ -n "$BRAIN_APP" ]; then
   echo

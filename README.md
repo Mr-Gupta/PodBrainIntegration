@@ -1,80 +1,92 @@
 # pod-brain
 
-Shared memory for a small eng pod's coding agents. When one teammate's
-session learns something — a gotcha, a correction, a rejected decision —
-every other teammate's agent already knows it.
+Shared memory for a pod's coding agents. When one person's session learns
+something — a gotcha, a correction, a dead end — everyone else's agent already
+knows it.
 
-The whole prototype: **2 Claude Code hooks + this git repo + 1 LLM call.**
+This repo is the **client half**: hooks that capture learnings when a session
+ends and inject them back at the start of the next one. Two modes:
 
-- `hooks/inject.py` (`UserPromptSubmit`) — reads `learnings/`, injects them
-  into every prompt's context. Pulls the repo in the background so the store
-  stays fresh.
-- `hooks/extract.py` (`Stop`) — detaches into the background when the agent
-  finishes a turn, reads the transcript delta, and makes one `claude -p`
-  call against `prompts/extract.md` to decide if the turn produced a
-  learning. High capture threshold — most turns produce `NONE`. Writes
-  qualifying learnings to `learnings/` and commits/pushes.
-- `learnings/*.md` — the store. One learning per file:
-  **claim + dead-ends + trigger/scope + provenance**. A literal error string
-  is the best trigger.
+- **Standalone** — learnings are markdown files in git. No infrastructure. Two
+  hooks, this repo, one LLM call per turn. Fine for a handful of people.
+- **Server** — the same hooks talk to a retrieval service (Postgres with
+  pgvector and full-text, RRF fusion, an offline consolidation pass, an LLM
+  merge judge). That service is a separate private repo; these hooks are the
+  public part.
 
-## Setup (each teammate)
+The markdown store isn't an older version of the server. It's the
+zero-dependency mode, and both share these hooks.
+
+## Install
 
 ```sh
 git clone <this repo> ~/Dev/pod-brain
-~/Dev/pod-brain/install.sh              # user-level: all sessions
-# or: ~/Dev/pod-brain/install.sh ~/path/to/work-repo   # that repo only
+~/Dev/pod-brain/install.sh                     # all sessions
+~/Dev/pod-brain/install.sh ~/path/to/repo      # just that repo
 ```
 
-Requires: `python3`, `claude` CLI (uses your existing auth — no API key).
+Needs `python3` and the `claude` CLI. Uses your existing auth — no API key.
 
-### Split code and store (work setups)
+`install.sh` is the only command you run. It always wires Claude Code, and adds
+Codex when it finds one and you pass `--brain-app` (see [Codex](#codex)).
+Re-running replaces the previous wiring instead of stacking a second copy, so
+switching modes is safe.
 
-If the learnings must live in a different org than this code (e.g. team
-knowledge belongs in the company's GitHub org, while this tool repo stays
-personal), point the hooks at a separate store repo:
+## Standalone mode
+
+- **`hooks/inject.py`** (`UserPromptSubmit`) reads `learnings/` and adds them to
+  every prompt. Pulls the repo in the background so the store stays fresh.
+- **`hooks/extract.py`** (`Stop`) forks to the background when a turn ends,
+  reads the transcript delta, and makes one `claude -p` call against
+  `prompts/extract.md` to decide whether anything was learned. The bar is high —
+  most turns return `NONE`. Anything that qualifies is written to `learnings/`,
+  committed, and pushed.
+- **`learnings/*.md`** — one learning per file: claim, dead ends, trigger/scope,
+  provenance. A literal error string makes the best trigger.
+
+### Keeping the store in another org
+
+If team knowledge belongs in the company's GitHub org but this tool repo is
+personal, point the hooks at a separate store:
 
 ```sh
 git clone git@github.com:your-org/pod-brain-store.git ~/work/pod-brain-store
 ~/Dev/pod-brain/install.sh --store ~/work/pod-brain-store
 ```
 
-The store repo needs nothing but a `learnings/` directory (created for you on
-install). Learnings are committed/pushed there; the extraction policy is read
-from the store's `prompts/extract.md` if present, else from this repo.
+The store repo needs nothing but a `learnings/` directory, created for you on
+install. Learnings get committed there. The extraction policy comes from the
+store's `prompts/extract.md` if it has one, otherwise from this repo.
 
-## Server mode (v0 prototype)
-
-Instead of the git-markdown store, hooks can talk to a shared brain server
-(Brain/app — see its docs/superpowers/specs/2026-07-19-v0-collision-prototype-design.md):
+## Server mode
 
 ```sh
 ~/Dev/pod-brain/install.sh --server http://localhost:8787
 ```
 
-- Every prompt: top-3 team learnings injected as a <team_memory> block.
-- First prompt of a session: ⚠️ collision warning if a teammate recently
-  worked on the same thing.
-- After every Bash call: tool output is checked against learning triggers
-  (pure lexical, no LLM) — a match fires the teammate's gotcha instantly,
-  once per session.
-- On Stop: the transcript delta is sent to the server, which extracts
-  structured learning records (category, claim, dead-ends, provenance,
-  trigger, repo scope) + a session summary into the shared Postgres.
-- Every retrieval (injection, collision, trigger fire, mid-session search)
-  is appended by the server to a local JSONL log
-  (`.state/retrievals.jsonl` in Brain/app; `RETRIEVAL_LOG` to move it) —
-  `npm run stats` there shows hit rates and which records actually fire.
+What changes:
 
-Env: `POD_BRAIN_URL` (server), `POD_BRAIN_ACTOR` (defaults to git user.name).
+- **Every prompt** — top-3 team learnings injected as a `<team_memory>` block.
+- **First prompt of a session** — a warning if a teammate recently worked on the
+  same thing.
+- **After every Bash call** — tool output is matched against learning triggers.
+  Pure lexical, no LLM. A hit fires the teammate's gotcha immediately, once per
+  session.
+- **On Stop** — the transcript delta goes to the server, which extracts
+  structured records (category, claim, dead ends, provenance, trigger, repo
+  scope) plus a session summary.
+
+Every retrieval is logged to `.state/retrievals.jsonl` on the server
+(`RETRIEVAL_LOG` moves it). `npm run stats` there shows hit rates and which
+records actually fire.
+
 `--server` and `--store` are mutually exclusive.
 
-### Mid-session pull (agent-initiated)
+### Letting the agent search mid-task
 
-Push covers the moments we can predict (prompt start, error in tool output).
-For the moments we can't — the agent wondering "did anyone hit this?" mid-task
-— the server exposes search directly. Add this line to a repo's `CLAUDE.md`
-(or `~/.claude/CLAUDE.md`) so agents know to pull:
+Injection covers the predictable moments. For the rest — an agent wondering
+"has anyone hit this?" halfway through — add this to a repo's `CLAUDE.md` or
+`~/.claude/CLAUDE.md`:
 
 ```markdown
 ## Team memory (pod-brain)
@@ -94,68 +106,82 @@ shared brain. Query it mid-task — don't wait for it to be pushed to you:
 - Empty results are normal; move on. At most a couple of queries per task.
 ```
 
-## Codex (pull only)
+## Codex
 
-`install.sh` wires Claude Code and nothing else. Codex has no
-`UserPromptSubmit`/`Stop`/`PostToolUse` equivalent, so it cannot capture — but
-it can *read* what Claude Code sessions captured, which is the cross-harness
-half of the pitch:
+One installer wires both harnesses. Add `--brain-app` and `install.sh` detects
+Codex (via `~/.codex` or the CLI) and wires it too:
 
-```bash
-./install-codex.sh --brain-app ~/dev/PodBrainServer --server http://localhost:8787 ~/dev/retoolos
+```sh
+./install.sh --server http://localhost:8787 --brain-app ~/dev/PodBrainServer ~/dev/retoolos
 ```
 
-Two things get written, both idempotent and both backed up to `*.bak`:
+Codex needs **server mode**: its MCP tool reads the shared Postgres directly and
+the hook posts to the HTTP server, so markdown mode has nothing for it to talk
+to. Run with `--store` and Codex is skipped with a note rather than wired to a
+port nothing is listening on. `install-codex.sh` still runs standalone if you
+want just the Codex half.
 
-- `~/.codex/config.toml` gains an `[mcp_servers.pod_brain]` entry exposing the
-  `search_team_memory` tool. `CODEX_HOME` overrides the location.
-- `<repo>/AGENTS.md` gains a pointer telling the agent *when* to call it. The
-  tool alone is not enough — an agent that has to decide to look mostly
-  doesn't, which is the exact complaint the user research turned up about
-  committed skills.
+It writes two files, both idempotent, both backed up to `*.bak`:
 
-`--server` is optional and only adds an HTTP `curl` fallback to `AGENTS.md`,
-so the demo survives an MCP misconfiguration.
+- **`~/.codex/config.toml`** (`CODEX_HOME` overrides the location) gets both
+  halves in one block:
+  - `[mcp_servers.pod_brain]` — the `search_threads` / `read_thread` /
+    `who_knows` tools. `cwd` points at the brain checkout so the server's
+    `dotenv` finds `.env`; no credentials are copied into the config.
+    `startup_timeout_sec` is 30 because `npx tsx` cold-starts well past the
+    10s default.
+  - `[[hooks.UserPromptSubmit]]` — runs `hooks/context.py` **unmodified**. Codex
+    sends `session_id`, `prompt`, and `cwd` on stdin (the three fields the hook
+    reads) and adds plain stdout to the prompt as context, like Claude Code.
+- **`<repo>/AGENTS.md`** — a pointer telling the agent when to call
+  `search_threads` (plus `read_thread` and `who_knows`), with your actor name
+  baked in as `viewer` so your own past work is excluded. The tool alone isn't
+  enough: an agent that has to decide to look mostly doesn't.
 
-The entry sets `cwd` to the brain checkout so the server's own `dotenv` finds
-`.env` — no credentials are copied into `config.toml`. `startup_timeout_sec`
-is raised to 30 because `npx tsx` cold-starts past the 10s default.
+Hooks go in `config.toml`, **not `hooks.json`.** The docs list both locations,
+but a hook in `hooks.json` was never observed to fire. If an earlier install
+left one there, the installer strips it out.
 
-A `UserPromptSubmit` hook is also written to `~/.codex/hooks.json`, running
-`hooks/context.py` **unmodified** — Codex sends `session_id`, `prompt` and
-`cwd` on stdin (the three fields the hook reads) and accepts plain stdout as
-injected context, exactly like Claude Code. That is the push side; MCP alone
-would leave it to the agent to remember to look.
+Without `--server` the MCP tool is still registered (it needs no URL), but the
+`UserPromptSubmit` hook is skipped — `context.py` is an HTTP client with nowhere
+to post. `--server` also adds a `curl` fallback to `AGENTS.md`, so a demo
+survives a broken MCP config.
 
-> **After installing, run `/hooks` in Codex and press `t` to trust it.**
-> Codex silently skips untrusted command hooks — which looks identical to a
-> broken one.
+> **Run `/hooks` in Codex and press `t` to trust the hook.** Codex silently
+> skips untrusted command hooks, which looks exactly like a broken one.
 
-**Capture from Codex is not wired yet.** `Stop` fires on Codex too, but
-`extract_http.py` parses Claude transcript format and Codex writes its own
-rollout shape under `CODEX_HOME`. That is a parser, not a redesign. Codex's
-event list is near-identical to Claude Code's: `UserPromptSubmit`, `Stop`,
-`PreToolUse`, `PostToolUse`, `SessionStart`/`End`, `Pre`/`PostCompact`,
-`SubagentStart`/`Stop`. See <https://learn.chatgpt.com/docs/hooks>.
+**Codex can read but not yet write.** `Stop` fires there too, but
+`extract_http.py` parses Claude's transcript format and Codex writes its own
+rollout shape under `CODEX_HOME`. That's a parser, not a redesign — the event
+list is nearly identical (`UserPromptSubmit`, `Stop`, `PreToolUse`,
+`PostToolUse`, `SessionStart`/`End`, `Pre`/`PostCompact`, `SubagentStart`/`Stop`).
+See <https://learn.chatgpt.com/docs/hooks>.
 
-## Test the loop
+## Check that it works
 
-1. **Inject (Wizard-of-Oz):** in a fresh Claude Code session say
-   "run the pod-brain selftest". If the reply contains `PODBRAIN-OK-7B3F`,
-   injection works.
-2. **Extract:** have a session where you correct the agent
-   ("no — we use X here, not Y"), end the turn, then check
-   `learnings/` for a new file within ~a minute.
-3. **Transfer:** teammate pulls (or the inject hook's background pull runs),
-   starts a session touching the same area — their agent already knows.
+1. **Injection** — in a fresh session, say "run the pod-brain selftest". If the
+   reply contains `PODBRAIN-OK-7B3F`, it's working.
+2. **Capture** — correct the agent about something ("no, we use X here, not Y"),
+   end the turn, and look for a new file in `learnings/` within a minute.
+3. **Transfer** — a teammate pulls, starts a session in the same area, and their
+   agent already knows.
 
-## Env knobs
+## Environment
 
-- `POD_BRAIN_DIR` — store location (default: this repo).
-- `POD_BRAIN_MODEL` — extraction model (default `claude-opus-4-8`).
-- `POD_BRAIN_URL` — brain server (server mode); `POD_BRAIN_ACTOR` — actor name override (defaults to git user.name).
+| Variable | Purpose |
+| --- | --- |
+| `POD_BRAIN_DIR` | Store location (default: this repo) |
+| `POD_BRAIN_MODEL` | Extraction model (default `claude-opus-4-8`) |
+| `POD_BRAIN_URL` | Server URL, server mode |
+| `POD_BRAIN_ACTOR` | Actor name (default: git `user.name`) |
 
-## Deliberately not here (see the Brain vault wiki)
+## Scope
 
-No Postgres, no embeddings, no MCP server, no ACLs, no outcome loop. This
-validates the transfer moment; the moat comes later.
+This repo is hooks, installers, and the markdown store. Retrieval —
+Postgres/pgvector, full-text, RRF, consolidation, the merge judge — is the
+server's job. In standalone mode there's no retrieval at all; every learning is
+injected.
+
+Still missing on both sides: ACLs and multi-tenancy, and an outcome loop. Right
+now nothing tells us whether an injected learning actually changed what the
+agent did. This proves the transfer moment works; the moat comes later.
